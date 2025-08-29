@@ -4,3 +4,4 @@ logs
 data/token.json
 "*.log" 
 "logs/" 
+service-account-key.json
