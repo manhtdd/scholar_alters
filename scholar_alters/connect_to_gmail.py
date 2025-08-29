@@ -10,6 +10,7 @@ import httplib2
 import logging
 from .constants import *
 from datetime import datetime, timedelta
+from google.oauth2 import service_account # Import this for Service Account
 
 # Configure logging to both a file and the console
 if not os.path.exists("./logs"):
@@ -36,40 +37,57 @@ def get_service(data_folder='.'):
         service: Authorized Gmail API service instance.
     """
     # Check if running in GitHub Actions (Service Account)
+    # The 'GOOGLE_APPLICATION_CREDENTIALS' env var will point to the service account key file
     if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
-        # Use Service Account for GitHub Actions
-        service = build('gmail', 'v1')
-        return service
+        logging.info("Using Service Account for authentication.")
+        try:
+            # Load credentials from the file pointed to by GOOGLE_APPLICATION_CREDENTIALS
+            creds = service_account.Credentials.from_service_account_file(
+                os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'), scopes=SCOPES)
+            
+            # Build and return the Gmail service
+            http = AuthorizedHttp(creds, http=httplib2.Http(timeout=30))
+            service = build('gmail', 'v1', http=http)
+            return service
+        except Exception as e:
+            logging.error(f"Error using Service Account credentials: {e}")
+            raise # Re-raise the exception to stop the workflow
     
-    # Use OAuth flow for local development
+    # Use OAuth flow for local development if not in GitHub Actions
+    logging.info("Using OAuth flow for local development.")
     creds = None
     token_filename = os.path.join(data_folder, 'token.json')
 
     # Load credentials from token.json if available
     if os.path.exists(token_filename):
+        logging.info(f"Loading credentials from {token_filename}")
         creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
 
     # Refresh or request new credentials if necessary
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
+            logging.info("Refreshing expired OAuth credentials.")
             try:
                 creds.refresh(Request())
-            except RefreshError:
+            except RefreshError as e:
+                logging.warning(f"Refresh token failed: {e}. Initiating new local server flow.")
+                # Fallback to full interactive flow if refresh fails
                 flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
                 creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
         else:
+            logging.info("No valid OAuth credentials found. Initiating new local server flow.")
             flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
             creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
 
         # Save the credentials for future use in JSON format
         with open(token_filename, 'w') as token_file:
             json.dump(json.loads(creds.to_json()), token_file)
+            logging.info(f"OAuth credentials saved to {token_filename}")
 
     # Build and return the Gmail service with network timeout to avoid hanging
     http = AuthorizedHttp(creds, http=httplib2.Http(timeout=30))
     service = build('gmail', 'v1', http=http)
     return service
-
 
 def list_messages_with_email_ids(service, user_id, email_ids=[]):
     """
