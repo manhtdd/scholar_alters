@@ -34,8 +34,6 @@ jobs:
     - name: Run email parser
       run: |
         python -m scholar_alters.parse_gmail_message
-      env:
-        GMAIL_CREDENTIALS: ${{ secrets.GMAIL_CREDENTIALS }}
         
     - name: Check for changes
       id: check_changes
