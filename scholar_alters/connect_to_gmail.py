@@ -27,6 +27,7 @@ logging.basicConfig(
 def get_service(data_folder='.'):
     """
     Connect to the Gmail API and return an authorized service instance.
+    Supports both OAuth flow (local) and Service Account (GitHub Actions).
     
     Args:
         data_folder (str): Directory to store OAuth tokens.
@@ -34,6 +35,13 @@ def get_service(data_folder='.'):
     Returns:
         service: Authorized Gmail API service instance.
     """
+    # Check if running in GitHub Actions (Service Account)
+    if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
+        # Use Service Account for GitHub Actions
+        service = build('gmail', 'v1')
+        return service
+    
+    # Use OAuth flow for local development
     creds = None
     token_filename = os.path.join(data_folder, 'token.json')
 
