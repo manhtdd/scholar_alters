@@ -22,18 +22,23 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install google-auth google-auth-oauthlib google-api-python-client
+        pip install google-auth google-auth-httplib2 google-api-python-client
         
-    - name: Create credentials.json
+    - name: Create service account key
       run: |
-        echo '${{ secrets.GMAIL_CREDENTIALS }}' > credentials.json
+        echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}' > service-account-key.json
         
     - name: Create data directory
       run: mkdir -p data
       
-    - name: Run email parser
+    - name: Run email parser with service account
       run: |
-        python -m scholar_alters.parse_gmail_message
+        python -c "
+        import os
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'service-account-key.json'
+        from scholar_alters.parse_gmail_message import process_once
+        process_once()
+        "
         
     - name: Check for changes
       id: check_changes
