@@ -1,0 +1,56 @@
+name: Parse Gmail Emails Daily
+
+on:
+  schedule:
+    # Run every morning at 6:00 AM UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  parse-emails:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install google-auth google-auth-oauthlib google-api-python-client
+        
+    - name: Create credentials.json
+      run: |
+        echo '${{ secrets.GMAIL_CREDENTIALS }}' > credentials.json
+        
+    - name: Create data directory
+      run: mkdir -p data
+      
+    - name: Run email parser
+      run: |
+        python -m scholar_alters.parse_gmail_message
+      env:
+        GMAIL_CREDENTIALS: ${{ secrets.GMAIL_CREDENTIALS }}
+        
+    - name: Check for changes
+      id: check_changes
+      run: |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Commit and push if changes
+      if: steps.check_changes.outputs.has_changes == 'true'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add data/
+        git commit -m "Auto-update: Parse emails $(date -u +'%Y-%m-%d')"
+        git push

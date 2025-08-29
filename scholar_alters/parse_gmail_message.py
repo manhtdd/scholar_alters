@@ -3,6 +3,8 @@ import json
 from html.parser import HTMLParser
 from os import path as ospath, makedirs
 import logging
+import time
+import argparse
 from .constants import *  # Contains constants like DATA_FOLDER, PAPERS_LABEL, etc.
 from .connect_to_gmail import *  # Contains Gmail API functions
 
@@ -190,14 +192,14 @@ class PaperAggregator:
             index += 1
         return -1
 
-if __name__ == '__main__':
+def process_once():
     # Ensure data folder exists
     if not ospath.exists(DATA_FOLDER):
         makedirs(DATA_FOLDER)
-    
+
     # Connect to Gmail API
     service = get_service(DATA_FOLDER)
-    
+
     # Get all messages with specific labels
     emails = get_emails_from_sender_within_day(service, 'me')
     messages = list_messages_with_email_ids(service, "me", emails)
@@ -205,11 +207,11 @@ if __name__ == '__main__':
         logging.info('Found %d messages', len(messages))
     else:
         logging.info('No messages found')
-        exit(0)
-    
+        return False
+
     # Initialize Paper Aggregator
     pa = PaperAggregator()
-    
+
     # Prepare a list to store metadata about processed emails
     email_metadata = []
 
@@ -220,33 +222,33 @@ if __name__ == '__main__':
         logging.info(f"{msg_count}/{len(messages)}")
         msg_content = get_message(service, "me", msg['id'])
         logging.info(msg_content)
-        
+
         try:
             msg_str = base64.urlsafe_b64decode(msg_content['payload']['body']['data'].encode('ASCII'))
         except KeyError:
             logging.warning("No body data")
             continue  # Skip if email has no body data
-        
+
         # Extract email subject
         msg_title = ''
         for h in msg_content['payload']['headers']:
             if h['name'] == 'Subject':
                 msg_title = h['value']
                 logging.info(msg_title)
-                
+
         if len(msg_title) == 0:
             logging.warning("No title")
             continue
-        
+
         # Parse the HTML content of the email
         parser = PapersHTMLParser(msg_title)
         parser.feed(str(msg_str))
-        
+
         # Add parsed papers to the aggregator
         for paper in parser.papers:
             logging.info(paper)
             pa.add(paper)
-        
+
         # Store metadata about this processed email
         email_metadata.append({
             "message_id": msg['id'],
@@ -261,12 +263,31 @@ if __name__ == '__main__':
         for paper in pa.paper_list:
             json.dump(paper.to_dict(), jsonl_file)
             jsonl_file.write('\n')
-    
+
     # Export email metadata to JSONL file
     emails_jsonl_path = ospath.join(DATA_FOLDER, 'processed_emails.jsonl')
     with open(emails_jsonl_path, 'w', encoding='utf-8') as jsonl_file:
         for email_data in email_metadata:
             json.dump(email_data, jsonl_file)
             jsonl_file.write('\n')
-    
+
     logging.info("Export completed: Papers and email metadata have been written to JSONL files.")
+    return True
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Parse Gmail messages for papers.')
+    parser.add_argument('--watch', action='store_true', help='Run continuously and poll at a fixed interval.')
+    parser.add_argument('--interval', type=int, default=900, help='Polling interval in seconds when running with --watch (default: 900).')
+    args = parser.parse_args()
+
+    if not args.watch:
+        process_once()
+    else:
+        logging.info(f"Starting watch mode with interval={args.interval}s")
+        while True:
+            try:
+                process_once()
+            except Exception as error:
+                logging.error(f'Unhandled error during watch loop: {error}')
+            time.sleep(max(1, args.interval))

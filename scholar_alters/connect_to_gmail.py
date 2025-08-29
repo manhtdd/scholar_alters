@@ -4,6 +4,9 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google.auth.exceptions import RefreshError
+from google_auth_httplib2 import AuthorizedHttp
+import httplib2
 import logging
 from .constants import *
 from datetime import datetime, timedelta
@@ -41,17 +44,22 @@ def get_service(data_folder='.'):
     # Refresh or request new credentials if necessary
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except RefreshError:
+                flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
+                creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
         else:
             flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
-            creds = flow.run_local_server()
+            creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
 
         # Save the credentials for future use in JSON format
         with open(token_filename, 'w') as token_file:
             json.dump(json.loads(creds.to_json()), token_file)
 
-    # Build and return the Gmail service
-    service = build('gmail', 'v1', credentials=creds)
+    # Build and return the Gmail service with network timeout to avoid hanging
+    http = AuthorizedHttp(creds, http=httplib2.Http(timeout=30))
+    service = build('gmail', 'v1', http=http)
     return service
 
 
