@@ -8,7 +8,7 @@ from google.auth.exceptions import RefreshError
 from google_auth_httplib2 import AuthorizedHttp
 import httplib2
 import logging
-from constants import *
+from .constants import *
 from datetime import datetime, timedelta
 
 # Configure logging
