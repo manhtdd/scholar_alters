@@ -46,30 +46,40 @@ def get_service(data_folder='.'):
 
     if os.environ.get('USE_GITHUB_SECRETS'):
         logging.info("Using GitHub Secrets for authentication (OAuth).")
-        credentials_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
-        if not credentials_json:
-            logging.error("GOOGLE_CREDENTIALS_JSON environment variable not set.")
-            raise ValueError("Missing GitHub secret for credentials.")
+        if os.path.exists(token_filename):
+            logging.info(f"Loading credentials from {token_filename}")
+            creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
 
-        temp_credentials_file = os.path.join(data_folder, 'temp_credentials.json')
-        with open(temp_credentials_file, 'w') as f:
-            f.write(credentials_json)
+        if not creds or not creds.valid:
+            credentials_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+            if not credentials_json:
+                logging.error("GOOGLE_CREDENTIALS_JSON environment variable not set.")
+                raise ValueError("Missing GitHub secret for credentials.")
 
-        try:
-            # Use the temporary credentials file for OAuth flow
-            flow = InstalledAppFlow.from_client_secrets_file(temp_credentials_file, SCOPES)
-            creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
+            temp_credentials_file = os.path.join(data_folder, 'temp_credentials.json')
+            with open(temp_credentials_file, 'w') as f:
+                f.write(credentials_json)
 
-            # Save the credentials for future use
+            try:
+                # Attempt to refresh existing credentials first
+                if creds and creds.expired and creds.refresh_token:
+                    logging.info("Refreshing expired OAuth credentials.")
+                    creds.refresh(Request())
+                else:
+                    # If no valid creds or refresh fails, raise error (manual intervention needed)
+                    logging.error("No valid credentials or refresh token available. Regenerate token.json locally.")
+                    raise ValueError("Invalid or missing credentials; regenerate token.json")
+            except RefreshError as e:
+                logging.error(f"Refresh token failed: {e}")
+                raise
+            finally:
+                if os.path.exists(temp_credentials_file):
+                    os.remove(temp_credentials_file)
+
+            # Save refreshed credentials
             with open(token_filename, 'w') as token_file:
                 json.dump(json.loads(creds.to_json()), token_file)
-                logging.info(f"OAuth credentials saved to {token_filename}")
-        except Exception as e:
-            logging.error(f"Error during OAuth flow with GitHub Secrets: {e}")
-            raise
-        finally:
-            if os.path.exists(temp_credentials_file):
-                os.remove(temp_credentials_file)
+                logging.info(f"OAuth credentials refreshed and saved to {token_filename}")
     else:
         # Use OAuth flow for local development
         logging.info("Using OAuth flow for local development.")
@@ -99,7 +109,6 @@ def get_service(data_folder='.'):
     http = AuthorizedHttp(creds, http=httplib2.Http(timeout=30))
     service = build('gmail', 'v1', http=http)
     return service
-
 def list_messages_with_email_ids(service, user_id, email_ids=[]):
     """
     Retrieve a list of message objects from the user's mailbox using the specified email IDs.
