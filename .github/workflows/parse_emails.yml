@@ -33,33 +33,31 @@ jobs:
         
     - name: Validate and set up JSON secrets
       run: |
-        # Validate and create token.json
-        if [ -n "${{ secrets.GOOGLE_TOKEN_JSON }}" ]; then
-          echo "${{ secrets.GOOGLE_TOKEN_JSON }}" > token_temp.json
-          if python -c "import json; json.load(open('token_temp.json'))"; then
-            echo "GOOGLE_TOKEN_JSON is valid JSON"
-            mv token_temp.json data/token.json
-          else
-            echo "GOOGLE_TOKEN_JSON is invalid JSON"
-            exit 1
-          fi
+        # Create data directory
+        mkdir -p data
+        
+        # Decode and write token.json
+        echo '${{ secrets.GOOGLE_TOKEN_JSON }}' | base64 -d > data/token.json
+        
+        # Decode and write credentials.json
+        echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' | base64 -d > data/credentials.json
+        
+        # Validate JSON files
+        if python -c "import json; json.load(open('data/token.json'))"; then
+          echo "GOOGLE_TOKEN_JSON is valid JSON"
         else
-          echo "GOOGLE_TOKEN_JSON secret is not set"
+          echo "GOOGLE_TOKEN_JSON is invalid JSON"
+          echo "Content:"
+          cat data/token.json
           exit 1
         fi
-
-        # Validate and create credentials.json
-        if [ -n "${{ secrets.GOOGLE_CREDENTIALS_JSON }}" ]; then
-          echo "${{ secrets.GOOGLE_CREDENTIALS_JSON }}" > credentials_temp.json
-          if python -c "import json; json.load(open('credentials_temp.json'))"; then
-            echo "GOOGLE_CREDENTIALS_JSON is valid JSON"
-            mv credentials_temp.json data/credentials.json
-          else
-            echo "GOOGLE_CREDENTIALS_JSON is invalid JSON"
-            exit 1
-          fi
+        
+        if python -c "import json; json.load(open('data/credentials.json'))"; then
+          echo "GOOGLE_CREDENTIALS_JSON is valid JSON"
         else
-          echo "GOOGLE_CREDENTIALS_JSON secret is not set"
+          echo "GOOGLE_CREDENTIALS_JSON is invalid JSON"
+          echo "Content:"
+          cat data/credentials.json
           exit 1
         fi
         
