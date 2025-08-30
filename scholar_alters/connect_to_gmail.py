@@ -28,7 +28,7 @@ logging.basicConfig(
 def get_service(data_folder='.'):
     """
     Connect to the Gmail API and return an authorized service instance.
-    Supports both OAuth flow (local) and Service Account (GitHub Actions).
+    Supports OAuth flow (local) and GitHub Secrets (for CI).
     
     Args:
         data_folder (str): Directory to store OAuth tokens.
@@ -36,55 +36,72 @@ def get_service(data_folder='.'):
     Returns:
         service: Authorized Gmail API service instance.
     """
-    # Check if running in GitHub Actions (Service Account)
-    # The 'GOOGLE_APPLICATION_CREDENTIALS' env var will point to the service account key file
-    if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
-        logging.info("Using Service Account for authentication.")
+    # Check if running in GitHub Actions with secrets
+    if os.environ.get('USE_GITHUB_SECRETS'):
+        logging.info("Using GitHub Secrets for authentication.")
+        creds = None
+        token_filename = os.path.join(data_folder, 'token.json')
+        credentials_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+
+        if not credentials_json:
+            logging.error("GOOGLE_CREDENTIALS_JSON environment variable not set.")
+            raise ValueError("Missing GitHub secret for credentials.")
+
+        # Save credentials to a temporary file
+        temp_credentials_file = os.path.join(data_folder, 'temp_credentials.json')
+        with open(temp_credentials_file, 'w') as f:
+            f.write(credentials_json)
+
         try:
-            # Load credentials from the file pointed to by GOOGLE_APPLICATION_CREDENTIALS
-            creds = service_account.Credentials.from_service_account_file(
-                os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'), scopes=SCOPES)
-            
-            # Build and return the Gmail service
-            http = AuthorizedHttp(creds, http=httplib2.Http(timeout=30))
-            service = build('gmail', 'v1', http=http)
-            return service
-        except Exception as e:
-            logging.error(f"Error using Service Account credentials: {e}")
-            raise # Re-raise the exception to stop the workflow
-    
-    # Use OAuth flow for local development if not in GitHub Actions
-    logging.info("Using OAuth flow for local development.")
-    creds = None
-    token_filename = os.path.join(data_folder, 'token.json')
-
-    # Load credentials from token.json if available
-    if os.path.exists(token_filename):
-        logging.info(f"Loading credentials from {token_filename}")
-        creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
-
-    # Refresh or request new credentials if necessary
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            logging.info("Refreshing expired OAuth credentials.")
-            try:
-                creds.refresh(Request())
-            except RefreshError as e:
-                logging.warning(f"Refresh token failed: {e}. Initiating new local server flow.")
-                # Fallback to full interactive flow if refresh fails
-                flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
-                creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
-        else:
-            logging.info("No valid OAuth credentials found. Initiating new local server flow.")
-            flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
+            # Use the temporary credentials file for OAuth flow
+            flow = InstalledAppFlow.from_client_secrets_file(temp_credentials_file, SCOPES)
             creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
 
-        # Save the credentials for future use in JSON format
-        with open(token_filename, 'w') as token_file:
-            json.dump(json.loads(creds.to_json()), token_file)
-            logging.info(f"OAuth credentials saved to {token_filename}")
+            # Save the credentials for future use
+            with open(token_filename, 'w') as token_file:
+                json.dump(json.loads(creds.to_json()), token_file)
+                logging.info(f"OAuth credentials saved to {token_filename}")
 
-    # Build and return the Gmail service with network timeout to avoid hanging
+        except Exception as e:
+            logging.error(f"Error during OAuth flow with GitHub Secrets: {e}")
+            raise
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_credentials_file):
+                os.remove(temp_credentials_file)
+
+    else:
+        # Use OAuth flow for local development
+        logging.info("Using OAuth flow for local development.")
+        creds = None
+        token_filename = os.path.join(data_folder, 'token.json')
+
+        # Load credentials from token.json if available
+        if os.path.exists(token_filename):
+            logging.info(f"Loading credentials from {token_filename}")
+            creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
+
+        # Refresh or request new credentials if necessary
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                logging.info("Refreshing expired OAuth credentials.")
+                try:
+                    creds.refresh(Request())
+                except RefreshError as e:
+                    logging.warning(f"Refresh token failed: {e}. Initiating new local server flow.")
+                    flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
+                    creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
+            else:
+                logging.info("No valid OAuth credentials found. Initiating new local server flow.")
+                flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
+                creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
+
+            # Save the credentials for future use in JSON format
+            with open(token_filename, 'w') as token_file:
+                json.dump(json.loads(creds.to_json()), token_file)
+                logging.info(f"OAuth credentials saved to {token_filename}")
+
+    # Build and return the Gmail service with network timeout
     http = AuthorizedHttp(creds, http=httplib2.Http(timeout=30))
     service = build('gmail', 'v1', http=http)
     return service
