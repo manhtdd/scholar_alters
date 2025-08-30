@@ -20,7 +20,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s',
     handlers=[
-        logging.FileHandler("./logs/connect_to_gmail.log"),
+        logging.FileHandler("./logs/connect_to_gmail.log", encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -38,75 +38,37 @@ def get_service(data_folder='.'):
     """
     creds = None
     token_filename = os.path.join(data_folder, 'token.json')
+    credentials_filename = os.path.join(data_folder, 'credentials.json')
 
-    # Load token from GOOGLE_TOKEN_JSON if it exists and token_filename doesn't
-    if not os.path.exists(token_filename) and os.environ.get('GOOGLE_TOKEN_JSON'):
-        token_json = os.environ.get('GOOGLE_TOKEN_JSON')
+    # Load token from file if it exists
+    if os.path.exists(token_filename):
         try:
-            # Validate JSON format before writing
-            json.loads(token_json)
-            with open(token_filename, 'w') as token_file:
-                token_file.write(token_json)
-            logging.info(f"Token loaded from GOOGLE_TOKEN_JSON to {token_filename}")
-        except json.JSONDecodeError as e:
-            logging.error(f"Invalid JSON in GOOGLE_TOKEN_JSON: {e}")
-            # Try to decode as base64 if direct JSON fails
-            try:
-                decoded_token = base64.b64decode(token_json).decode()
-                json.loads(decoded_token)
-                with open(token_filename, 'w') as token_file:
-                    token_file.write(decoded_token)
-                logging.info(f"Token decoded from base64 and saved to {token_filename}")
-            except:
-                logging.error("Failed to decode token as JSON or base64")
-                if os.path.exists(token_filename):
-                    os.remove(token_filename)
+            logging.info(f"Loading credentials from {token_filename}")
+            creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
+            
+            # Validate token structure
+            if not all(hasattr(creds, attr) for attr in ['token', 'refresh_token', 'client_id', 'client_secret']):
+                logging.error("Token missing required attributes")
+                creds = None
+                os.remove(token_filename)
+                
+        except (json.JSONDecodeError, ValueError, AttributeError) as e:
+            logging.error(f"Error loading token: {e}")
+            if os.path.exists(token_filename):
+                os.remove(token_filename)
+            creds = None
 
     if os.environ.get('USE_GITHUB_SECRETS'):
         logging.info("Using GitHub Secrets for authentication (OAuth).")
-        
-        # Check if token file exists and is valid
-        if os.path.exists(token_filename):
-            try:
-                logging.info(f"Loading credentials from {token_filename}")
-                creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
-                
-                # Validate token structure
-                if not all(hasattr(creds, attr) for attr in ['token', 'refresh_token', 'client_id', 'client_secret']):
-                    logging.error("Token missing required attributes")
-                    creds = None
-                    os.remove(token_filename)
-                    
-            except (json.JSONDecodeError, ValueError, AttributeError) as e:
-                logging.error(f"Error loading token: {e}")
-                if os.path.exists(token_filename):
-                    os.remove(token_filename)
-                creds = None
 
         if not creds or not creds.valid:
-            credentials_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
-            if not credentials_json:
-                logging.error("GOOGLE_CREDENTIALS_JSON environment variable not set.")
-                raise ValueError("Missing GitHub secret for credentials.")
-
-            # Try to decode as base64 if direct JSON fails
-            try:
-                json.loads(credentials_json)
-            except json.JSONDecodeError:
-                try:
-                    credentials_json = base64.b64decode(credentials_json).decode()
-                    json.loads(credentials_json)  # Validate
-                except:
-                    logging.error("Failed to decode credentials as JSON or base64")
-                    raise
-
-            temp_credentials_file = os.path.join(data_folder, 'temp_credentials.json')
-            with open(temp_credentials_file, 'w') as f:
-                f.write(credentials_json)
+            if not os.path.exists(credentials_filename):
+                logging.error("Credentials file not found")
+                raise ValueError("Missing credentials file")
 
             try:
                 # Create new credentials from scratch
-                flow = InstalledAppFlow.from_client_secrets_file(temp_credentials_file, SCOPES)
+                flow = InstalledAppFlow.from_client_secrets_file(credentials_filename, SCOPES)
                 creds = flow.run_console()  # Use console flow for CI
                 
                 # Save credentials
@@ -117,30 +79,9 @@ def get_service(data_folder='.'):
             except Exception as e:
                 logging.error(f"Failed to create credentials: {e}")
                 raise
-            finally:
-                if os.path.exists(temp_credentials_file):
-                    os.remove(temp_credentials_file)
     else:
         # Use OAuth flow for local development
         logging.info("Using OAuth flow for local development.")
-        
-        # Check if token file exists and is valid
-        if os.path.exists(token_filename):
-            try:
-                logging.info(f"Loading credentials from {token_filename}")
-                creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
-                
-                # Validate token structure
-                if not all(hasattr(creds, attr) for attr in ['token', 'refresh_token', 'client_id', 'client_secret']):
-                    logging.error("Token missing required attributes")
-                    creds = None
-                    os.remove(token_filename)
-                    
-            except (json.JSONDecodeError, ValueError, AttributeError) as e:
-                logging.error(f"Error loading token: {e}")
-                if os.path.exists(token_filename):
-                    os.remove(token_filename)
-                creds = None
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
@@ -149,11 +90,11 @@ def get_service(data_folder='.'):
                     creds.refresh(Request())
                 except RefreshError as e:
                     logging.warning(f"Refresh token failed: {e}. Initiating new local server flow.")
-                    flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
+                    flow = InstalledAppFlow.from_client_secrets_file(credentials_filename, SCOPES)
                     creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
             else:
                 logging.info("No valid OAuth credentials found. Initiating new local server flow.")
-                flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
+                flow = InstalledAppFlow.from_client_secrets_file(credentials_filename, SCOPES)
                 creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
 
             # Save credentials with proper JSON formatting
