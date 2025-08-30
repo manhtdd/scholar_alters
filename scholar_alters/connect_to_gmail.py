@@ -10,9 +10,8 @@ import httplib2
 import logging
 from .constants import *
 from datetime import datetime, timedelta
-from google.oauth2 import service_account  # Import this for Service Account
 
-# Configure logging to both a file and the console
+# Configure logging
 if not os.path.exists("./logs"):
     os.makedirs("./logs")
 logging.basicConfig(
@@ -20,15 +19,15 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s',
     handlers=[
-        logging.FileHandler("./logs/connect_to_gmail.log"),  # Log to a file
-        logging.StreamHandler()  # Log to the console
+        logging.FileHandler("./logs/connect_to_gmail.log"),
+        logging.StreamHandler()
     ]
 )
 
 def get_service(data_folder='.'):
     """
     Connect to the Gmail API and return an authorized service instance.
-    Supports OAuth flow (local) and GitHub Secrets (for CI).
+    Supports OAuth flow (local and CI with GitHub Secrets).
     
     Args:
         data_folder (str): Directory to store OAuth tokens.
@@ -36,7 +35,6 @@ def get_service(data_folder='.'):
     Returns:
         service: Authorized Gmail API service instance.
     """
-    # Check if running in GitHub Actions with secrets
     creds = None
     token_filename = os.path.join(data_folder, 'token.json')
 
@@ -47,14 +45,12 @@ def get_service(data_folder='.'):
             logging.info(f"Token loaded from GOOGLE_TOKEN_JSON to {token_filename}")
 
     if os.environ.get('USE_GITHUB_SECRETS'):
-        logging.info("Using GitHub Secrets for authentication.")
+        logging.info("Using GitHub Secrets for authentication (OAuth).")
         credentials_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
-
         if not credentials_json:
             logging.error("GOOGLE_CREDENTIALS_JSON environment variable not set.")
             raise ValueError("Missing GitHub secret for credentials.")
 
-        # Save credentials to a temporary file
         temp_credentials_file = os.path.join(data_folder, 'temp_credentials.json')
         with open(temp_credentials_file, 'w') as f:
             f.write(credentials_json)
@@ -68,25 +64,19 @@ def get_service(data_folder='.'):
             with open(token_filename, 'w') as token_file:
                 json.dump(json.loads(creds.to_json()), token_file)
                 logging.info(f"OAuth credentials saved to {token_filename}")
-
         except Exception as e:
             logging.error(f"Error during OAuth flow with GitHub Secrets: {e}")
             raise
         finally:
-            # Clean up temporary file
             if os.path.exists(temp_credentials_file):
                 os.remove(temp_credentials_file)
-
     else:
         # Use OAuth flow for local development
         logging.info("Using OAuth flow for local development.")
-
-        # Load credentials from token.json if available
         if os.path.exists(token_filename):
             logging.info(f"Loading credentials from {token_filename}")
             creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
 
-        # Refresh or request new credentials if necessary
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 logging.info("Refreshing expired OAuth credentials.")
@@ -101,7 +91,6 @@ def get_service(data_folder='.'):
                 flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
                 creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
 
-            # Save the credentials for future use in JSON format
             with open(token_filename, 'w') as token_file:
                 json.dump(json.loads(creds.to_json()), token_file)
                 logging.info(f"OAuth credentials saved to {token_filename}")
