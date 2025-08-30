@@ -34,6 +34,24 @@ jobs:
         echo "GOOGLE_TOKEN_JSON=${{ secrets.GOOGLE_TOKEN_JSON }}" >> $GITHUB_ENV
         echo "DATA_FOLDER=$GITHUB_WORKSPACE/data" >> $GITHUB_ENV
         
+    - name: Validate JSON secrets
+      run: |
+        # Validate GOOGLE_TOKEN_JSON
+        if python -c "import json; json.loads('$GOOGLE_TOKEN_JSON')"; then
+          echo "GOOGLE_TOKEN_JSON is valid JSON"
+        else
+          echo "GOOGLE_TOKEN_JSON is invalid JSON"
+          exit 1
+        fi
+        
+        # Validate GOOGLE_CREDENTIALS_JSON
+        if python -c "import json; json.loads('$GOOGLE_CREDENTIALS_JSON')"; then
+          echo "GOOGLE_CREDENTIALS_JSON is valid JSON"
+        else
+          echo "GOOGLE_CREDENTIALS_JSON is invalid JSON"
+          exit 1
+        fi
+        
     - name: Run email parser
       run: python -m scholar_alters.parse_gmail_message
         
