@@ -2,8 +2,8 @@ name: Parse Gmail Emails Daily
 
 on:
   schedule:
-    # Run every morning at 6:00 AM UTC
-    - cron: '0 6 * * *'
+    # Run every morning at 0:00 AM UTC (7:00 AM +07)
+    - cron: '0 0 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -27,23 +27,25 @@ jobs:
     - name: Create service account key
       run: |
         echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}' > service-account-key.json
+        echo "GOOGLE_APPLICATION_CREDENTIALS=$GITHUB_WORKSPACE/service-account-key.json" >> $GITHUB_ENV
         
     - name: Create data directory
       run: mkdir -p data
       
-    - name: Run email parser with service account
+    - name: Set environment variables for GitHub Secrets
       run: |
-        python -c "
-        import os
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'service-account-key.json'
-        from scholar_alters.parse_gmail_message import process_once
-        process_once()
-        "
+        echo "USE_GITHUB_SECRETS=true" >> $GITHUB_ENV
+        echo "GOOGLE_CREDENTIALS_JSON=${{ secrets.GOOGLE_CREDENTIALS_JSON }}" >> $GITHUB_ENV
+        echo "GOOGLE_TOKEN_JSON=${{ secrets.GOOGLE_TOKEN_JSON }}" >> $GITHUB_ENV
+        echo "DATA_FOLDER=$GITHUB_WORKSPACE/data" >> $GITHUB_ENV
+        
+    - name: Run email parser
+      run: python scholar_alters/parse_gmail_message.py
         
     - name: Check for changes
       id: check_changes
       run: |
-        if [ -n "$(git status --porcelain)" ]; then
+        if [ -n "$(git status --porcelain data/)" ]; then
           echo "has_changes=true" >> $GITHUB_OUTPUT
         else
           echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -54,6 +56,6 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add data/  # Chỉ thêm thư mục data
+        git add data/
         git commit -m "Auto-update: Parse emails $(date -u +'%Y-%m-%d')" || echo "No changes to commit"
         git push
