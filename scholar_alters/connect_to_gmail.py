@@ -10,7 +10,7 @@ import httplib2
 import logging
 from .constants import *
 from datetime import datetime, timedelta
-from google.oauth2 import service_account # Import this for Service Account
+from google.oauth2 import service_account  # Import this for Service Account
 
 # Configure logging to both a file and the console
 if not os.path.exists("./logs"):
@@ -37,10 +37,17 @@ def get_service(data_folder='.'):
         service: Authorized Gmail API service instance.
     """
     # Check if running in GitHub Actions with secrets
+    creds = None
+    token_filename = os.path.join(data_folder, 'token.json')
+
+    # Load token from GOOGLE_TOKEN_JSON if it exists and token_filename doesn't
+    if not os.path.exists(token_filename) and os.environ.get('GOOGLE_TOKEN_JSON'):
+        with open(token_filename, 'w') as token_file:
+            token_file.write(os.environ.get('GOOGLE_TOKEN_JSON'))
+            logging.info(f"Token loaded from GOOGLE_TOKEN_JSON to {token_filename}")
+
     if os.environ.get('USE_GITHUB_SECRETS'):
         logging.info("Using GitHub Secrets for authentication.")
-        creds = None
-        token_filename = os.path.join(data_folder, 'token.json')
         credentials_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
 
         if not credentials_json:
@@ -73,8 +80,6 @@ def get_service(data_folder='.'):
     else:
         # Use OAuth flow for local development
         logging.info("Using OAuth flow for local development.")
-        creds = None
-        token_filename = os.path.join(data_folder, 'token.json')
 
         # Load credentials from token.json if available
         if os.path.exists(token_filename):
