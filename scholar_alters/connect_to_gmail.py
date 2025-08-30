@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -49,9 +50,17 @@ def get_service(data_folder='.'):
             logging.info(f"Token loaded from GOOGLE_TOKEN_JSON to {token_filename}")
         except json.JSONDecodeError as e:
             logging.error(f"Invalid JSON in GOOGLE_TOKEN_JSON: {e}")
-            # Don't create invalid token file
-            if os.path.exists(token_filename):
-                os.remove(token_filename)
+            # Try to decode as base64 if direct JSON fails
+            try:
+                decoded_token = base64.b64decode(token_json).decode()
+                json.loads(decoded_token)
+                with open(token_filename, 'w') as token_file:
+                    token_file.write(decoded_token)
+                logging.info(f"Token decoded from base64 and saved to {token_filename}")
+            except:
+                logging.error("Failed to decode token as JSON or base64")
+                if os.path.exists(token_filename):
+                    os.remove(token_filename)
 
     if os.environ.get('USE_GITHUB_SECRETS'):
         logging.info("Using GitHub Secrets for authentication (OAuth).")
@@ -79,6 +88,17 @@ def get_service(data_folder='.'):
             if not credentials_json:
                 logging.error("GOOGLE_CREDENTIALS_JSON environment variable not set.")
                 raise ValueError("Missing GitHub secret for credentials.")
+
+            # Try to decode as base64 if direct JSON fails
+            try:
+                json.loads(credentials_json)
+            except json.JSONDecodeError:
+                try:
+                    credentials_json = base64.b64decode(credentials_json).decode()
+                    json.loads(credentials_json)  # Validate
+                except:
+                    logging.error("Failed to decode credentials as JSON or base64")
+                    raise
 
             temp_credentials_file = os.path.join(data_folder, 'temp_credentials.json')
             with open(temp_credentials_file, 'w') as f:
