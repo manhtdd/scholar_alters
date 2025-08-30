@@ -35,7 +35,7 @@ jobs:
         echo "DATA_FOLDER=$GITHUB_WORKSPACE/data" >> $GITHUB_ENV
         
     - name: Run email parser
-      run: python scholar_alters/parse_gmail_message.py
+      run: python -m scholar_alters.parse_gmail_message
         
     - name: Check for changes
       id: check_changes
