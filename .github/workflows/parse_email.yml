@@ -51,15 +51,15 @@ jobs:
 
         # Validate JSON files without printing their content
         python - <<'PY'
-import json, sys
-try:
-    json.load(open('data/token.json'))
-    json.load(open('data/credentials.json'))
-except Exception as e:
-    print("Invalid JSON in one of the secret files:", e)
-    sys.exit(1)
-print("Secrets decoded and valid JSON.")
-PY
+        import json, sys
+        try:
+            json.load(open('data/token.json'))
+            json.load(open('data/credentials.json'))
+        except Exception as e:
+            print("Invalid JSON in one of the secret files:", e)
+            sys.exit(1)
+        print("Secrets decoded and valid JSON.")
+        PY
 
     - name: Export JSON secrets as env vars (for code expecting env JSON)
       run: |
