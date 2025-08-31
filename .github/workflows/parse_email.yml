@@ -63,14 +63,18 @@ PY
 
     - name: Export JSON secrets as env vars (for code expecting env JSON)
       run: |
-        # Use $GITHUB_ENV with EOF to avoid leaking to logs
-        echo "GOOGLE_CREDENTIALS_JSON<<EOF" >> $GITHUB_ENV
-        cat data/credentials.json >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
+        # Use a grouped block to safely append multiline values to $GITHUB_ENV
+        {
+          echo 'GOOGLE_CREDENTIALS_JSON<<EOF'
+          cat data/credentials.json
+          echo 'EOF'
+        } >> $GITHUB_ENV
 
-        echo "GOOGLE_TOKEN_JSON<<EOF" >> $GITHUB_ENV
-        cat data/token.json >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
+        {
+          echo 'GOOGLE_TOKEN_JSON<<EOF'
+          cat data/token.json
+          echo 'EOF'
+        } >> $GITHUB_ENV
 
     - name: Run email parser
       run: python -m scholar_alters.parse_gmail_message
