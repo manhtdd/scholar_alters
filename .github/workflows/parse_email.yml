@@ -2,7 +2,7 @@ name: Parse Gmail Emails Daily
 
 on:
   schedule:
-    - cron: '22 9 * * *'
+    - cron: '06 10 * * *'
   workflow_dispatch:
 
 permissions:
