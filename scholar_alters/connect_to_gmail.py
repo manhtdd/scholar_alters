@@ -1,6 +1,5 @@
 import os
 import json
-import base64
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -20,7 +19,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s',
     handlers=[
-        logging.FileHandler("./logs/connect_to_gmail.log", encoding='utf-8'),
+        logging.FileHandler("./logs/connect_to_gmail.log"),
         logging.StreamHandler()
     ]
 )
@@ -38,50 +37,54 @@ def get_service(data_folder='.'):
     """
     creds = None
     token_filename = os.path.join(data_folder, 'token.json')
-    credentials_filename = os.path.join(data_folder, 'credentials.json')
 
-    # Load token from file if it exists
-    if os.path.exists(token_filename):
-        try:
-            logging.info(f"Loading credentials from {token_filename}")
-            creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
-            
-            # Validate token structure
-            if not all(hasattr(creds, attr) for attr in ['token', 'refresh_token', 'client_id', 'client_secret']):
-                logging.error("Token missing required attributes")
-                creds = None
-                os.remove(token_filename)
-                
-        except (json.JSONDecodeError, ValueError, AttributeError) as e:
-            logging.error(f"Error loading token: {e}")
-            if os.path.exists(token_filename):
-                os.remove(token_filename)
-            creds = None
+    # Load token from GOOGLE_TOKEN_JSON if it exists and token_filename doesn't
+    if not os.path.exists(token_filename) and os.environ.get('GOOGLE_TOKEN_JSON'):
+        with open(token_filename, 'w') as token_file:
+            token_file.write(os.environ.get('GOOGLE_TOKEN_JSON'))
+            logging.info(f"Token loaded from GOOGLE_TOKEN_JSON to {token_filename}")
 
     if os.environ.get('USE_GITHUB_SECRETS'):
         logging.info("Using GitHub Secrets for authentication (OAuth).")
+        if os.path.exists(token_filename):
+            logging.info(f"Loading credentials from {token_filename}")
+            creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
 
         if not creds or not creds.valid:
-            if not os.path.exists(credentials_filename):
-                logging.error("Credentials file not found")
-                raise ValueError("Missing credentials file")
+            credentials_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+            if not credentials_json:
+                logging.error("GOOGLE_CREDENTIALS_JSON environment variable not set.")
+                raise ValueError("Missing GitHub secret for credentials.")
+
+            temp_credentials_file = os.path.join(data_folder, 'temp_credentials.json')
+            with open(temp_credentials_file, 'w') as f:
+                f.write(credentials_json)
 
             try:
-                # Create new credentials from scratch
-                flow = InstalledAppFlow.from_client_secrets_file(credentials_filename, SCOPES)
-                creds = flow.run_console()  # Use console flow for CI
-                
-                # Save credentials
-                with open(token_filename, 'w') as token_file:
-                    token_file.write(creds.to_json())
-                logging.info(f"New OAuth credentials saved to {token_filename}")
-                
-            except Exception as e:
-                logging.error(f"Failed to create credentials: {e}")
+                # Attempt to refresh existing credentials
+                if creds and creds.expired and creds.refresh_token:
+                    logging.info("Refreshing expired OAuth credentials.")
+                    creds.refresh(Request())
+                else:
+                    logging.error("No valid credentials or refresh token available. Regenerate token.json locally.")
+                    raise ValueError("Invalid or missing credentials; regenerate token.json")
+            except RefreshError as e:
+                logging.error(f"Refresh token failed: {e}. Regenerate token.json locally with offline access.")
                 raise
+            finally:
+                if os.path.exists(temp_credentials_file):
+                    os.remove(temp_credentials_file)
+
+            # Save refreshed credentials
+            with open(token_filename, 'w') as token_file:
+                json.dump(json.loads(creds.to_json()), token_file)
+                logging.info(f"OAuth credentials refreshed and saved to {token_filename}")
     else:
         # Use OAuth flow for local development
         logging.info("Using OAuth flow for local development.")
+        if os.path.exists(token_filename):
+            logging.info(f"Loading credentials from {token_filename}")
+            creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
@@ -90,17 +93,16 @@ def get_service(data_folder='.'):
                     creds.refresh(Request())
                 except RefreshError as e:
                     logging.warning(f"Refresh token failed: {e}. Initiating new local server flow.")
-                    flow = InstalledAppFlow.from_client_secrets_file(credentials_filename, SCOPES)
+                    flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
                     creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
             else:
                 logging.info("No valid OAuth credentials found. Initiating new local server flow.")
-                flow = InstalledAppFlow.from_client_secrets_file(credentials_filename, SCOPES)
+                flow = InstalledAppFlow.from_client_secrets_file(CLIENTSECRETS_LOCATION, SCOPES)
                 creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
 
-            # Save credentials with proper JSON formatting
             with open(token_filename, 'w') as token_file:
-                token_file.write(creds.to_json())
-            logging.info(f"OAuth credentials saved to {token_filename}")
+                json.dump(json.loads(creds.to_json()), token_file)
+                logging.info(f"OAuth credentials saved to {token_filename}")
 
     # Build and return the Gmail service with network timeout
     http = AuthorizedHttp(creds, http=httplib2.Http(timeout=30))
