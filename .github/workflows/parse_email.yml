@@ -36,6 +36,9 @@ jobs:
         echo "USE_GITHUB_SECRETS=true" >> $GITHUB_ENV
         echo "DATA_FOLDER=$GITHUB_WORKSPACE/data" >> $GITHUB_ENV
 
+    - name: Ensure base64 is available
+      run: sudo apt-get update && sudo apt-get install -y coreutils
+
     - name: Validate and write JSON secrets (safe)
       run: |
         mkdir -p data
@@ -58,7 +61,6 @@ except Exception as e:
 print("Secrets decoded and valid JSON.")
 PY
 
-    # --- IMPORTANT: export the file contents into environment variables so code that expects env JSON works ---
     - name: Export JSON secrets as env vars (for code expecting env JSON)
       run: |
         # Use $GITHUB_ENV with EOF to avoid leaking to logs
@@ -85,7 +87,6 @@ PY
     - name: Commit and push if changes
       if: steps.check_changes.outputs.has_changes == 'true'
       env:
-        # GITHUB_TOKEN is automatically provided by Actions, used by actions/checkout for pushing
         GIT_COMMITTER_NAME: "github-actions[bot]"
         GIT_COMMITTER_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
       run: |
@@ -93,5 +94,4 @@ PY
         git config --local user.name "$GIT_COMMITTER_NAME"
         git add data/
         git commit -m "Auto-update: Parse emails $(date -u +'%Y-%m-%d')" || echo "No changes to commit"
-        # push using the token provided to the runner
         git push
