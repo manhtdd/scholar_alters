@@ -1,0 +1,97 @@
+name: Parse Gmail Emails Daily
+
+on:
+  schedule:
+    - cron: '22 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write    # cho phép push changes back to repo
+
+jobs:
+  parse-emails:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Create data directory
+      run: mkdir -p data
+
+    - name: Set environment variables for GitHub Secrets
+      run: |
+        echo "USE_GITHUB_SECRETS=true" >> $GITHUB_ENV
+        echo "DATA_FOLDER=$GITHUB_WORKSPACE/data" >> $GITHUB_ENV
+
+    - name: Validate and write JSON secrets (safe)
+      run: |
+        mkdir -p data
+
+        # Decode and write token.json (base64 in secret)
+        echo '${{ secrets.GOOGLE_TOKEN_JSON }}' | base64 -d > data/token.json
+
+        # Decode and write credentials.json (base64 in secret)
+        echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' | base64 -d > data/credentials.json
+
+        # Validate JSON files without printing their content
+        python - <<'PY'
+import json, sys
+try:
+    json.load(open('data/token.json'))
+    json.load(open('data/credentials.json'))
+except Exception as e:
+    print("Invalid JSON in one of the secret files:", e)
+    sys.exit(1)
+print("Secrets decoded and valid JSON.")
+PY
+
+    # --- IMPORTANT: export the file contents into environment variables so code that expects env JSON works ---
+    - name: Export JSON secrets as env vars (for code expecting env JSON)
+      run: |
+        # Use $GITHUB_ENV with EOF to avoid leaking to logs
+        echo "GOOGLE_CREDENTIALS_JSON<<EOF" >> $GITHUB_ENV
+        cat data/credentials.json >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+
+        echo "GOOGLE_TOKEN_JSON<<EOF" >> $GITHUB_ENV
+        cat data/token.json >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+
+    - name: Run email parser
+      run: python -m scholar_alters.parse_gmail_message
+
+    - name: Check for changes
+      id: check_changes
+      run: |
+        if [ -n "$(git status --porcelain data/)" ]; then
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Commit and push if changes
+      if: steps.check_changes.outputs.has_changes == 'true'
+      env:
+        # GITHUB_TOKEN is automatically provided by Actions, used by actions/checkout for pushing
+        GIT_COMMITTER_NAME: "github-actions[bot]"
+        GIT_COMMITTER_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+      run: |
+        git config --local user.email "$GIT_COMMITTER_EMAIL"
+        git config --local user.name "$GIT_COMMITTER_NAME"
+        git add data/
+        git commit -m "Auto-update: Parse emails $(date -u +'%Y-%m-%d')" || echo "No changes to commit"
+        # push using the token provided to the runner
+        git push
