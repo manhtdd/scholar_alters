@@ -66,14 +66,17 @@ jobs:
         {
           echo "GOOGLE_CREDENTIALS_JSON<<EOF"
           cat data/credentials.json
+          echo
           echo "EOF"
         } >> $GITHUB_ENV
 
         {
           echo "GOOGLE_TOKEN_JSON<<EOF"
           cat data/token.json
+          echo
           echo "EOF"
         } >> $GITHUB_ENV
+
 
 
 
